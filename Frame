@@ -1,0 +1,23 @@
+import os
+
+from src.frame_extractor.frame_extractor import KeyframeExtractor
+
+if __name__ == '__main__':
+    VID_PATH = os.path.join(".", "res", "vid")
+    TIMESTAMP_PATH = os.path.join(".", "res", "timestamp")
+    VID_FILES = os.listdir(os.path.join(".", "res", "vid"))
+    TIMESTAMP_FILES = os.listdir(os.path.join(".", "res", "timestamp"))
+
+    print("[+] Operation probably taking long time, be patient")
+    print("[+] Processing....")
+
+    extractor = KeyframeExtractor(
+        VID_PATH,
+        TIMESTAMP_PATH,
+        VID_FILES,
+        TIMESTAMP_FILES,
+        width=640,
+        height=360,
+        max_workers=4
+    )
+    extractor.extract_keyframes()
