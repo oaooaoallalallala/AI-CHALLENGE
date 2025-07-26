@@ -1,0 +1,84 @@
+import cv2
+import os
+import logging
+import shutil
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+
+
+class KeyframeExtractor:
+    def __init__(self, video_path, timestamp_path, video_files, timestamp_files, width, height, output_dir='keyframes', max_workers=4):
+        assert len(video_files) == len(timestamp_files), "Number of video files must match number of timestamp files."
+
+        self.video_files = video_files
+        self.timestamp_files = timestamp_files
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.max_workers = max_workers
+        self.video_path = video_path
+        self.timestamp_path = timestamp_path
+        self.width = width
+        self.height = height
+
+        # Clear all previous data
+        self._prepare_output_dir()
+
+    def _prepare_output_dir(self):
+        if self.output_dir.exists():
+            logging.info(f"Cleaning output directory: {self.output_dir}")
+            shutil.rmtree(self.output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def extract_keyframes(self):
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
+            for vid_file, ts_file in zip(self.video_files, self.timestamp_files):
+                futures.append(executor.submit(self._process_video,
+                                               os.path.join(self.video_path, vid_file),
+                                               os.path.join(self.timestamp_path, ts_file)
+                                               ))
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    logging.info(result)
+
+    def _process_video(self, video_path, timestamp_path):
+        video_name = Path(video_path).stem
+
+        if not os.path.exists(os.path.join(self.output_dir, video_name)):
+            os.mkdir(os.path.join(self.output_dir, video_name))
+
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            return f"Failed to open video: {video_path}"
+
+        with open(timestamp_path, 'r') as f:
+            for i, line in enumerate(f):
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    logging.warning(f"Invalid timestamp line in {timestamp_path}: {line.strip()}")
+                    continue
+
+                try:
+                    start = int(parts[0])
+                    end = int(parts[1])
+                    mid = (start + end) // 2
+
+                    for label, frame_idx in zip(['start', 'mid', 'end'], [start, mid, end]):
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                        ret, frame = cap.read()
+                        if ret:
+                            resized_frame = cv2.resize(frame, (self.width, self.height))
+                            output_path = os.path.join(self.output_dir, video_name, f"{frame_idx}_{label}.jpg")
+                            cv2.imwrite(str(output_path), resized_frame)
+                        else:
+                            logging.warning(f"Failed to read frame {frame_idx} from {video_path}")
+                except ValueError:
+                    logging.warning(f"Invalid number format in {timestamp_path}: {line.strip()}")
+
+        cap.release()
+        return f"Finished processing {video_path}"
